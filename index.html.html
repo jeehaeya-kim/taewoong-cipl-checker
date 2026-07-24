@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>태웅로직스 · CI/PL 필수기재 체크 툴</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    font-family: "Malgun Gothic", "Noto Sans KR", Arial, sans-serif;
+    color: #1a1a1a;
+    background: #f4f5f7;
+    margin: 0;
+    padding: 24px;
+  }
+  .wrap { max-width: 980px; margin: 0 auto; }
+
+  /* ---------- 업로드 카드 ---------- */
+  .upload-card {
+    background: #fff;
+    border-radius: 10px;
+    border: 1px solid #d8dbe0;
+    padding: 24px;
+    margin-bottom: 20px;
+  }
+  .upload-card h1 {
+    font-size: 18px; font-weight: 700; color: #0b3d61; margin: 0 0 2px;
+  }
+  .upload-card .sub { font-size: 12px; color: #667085; margin-bottom: 18px; }
+
+  .dropzones { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .dropzones.single { grid-template-columns: 1fr; }
+  .dropzone {
+    border: 1.5px dashed #b7c1cc;
+    border-radius: 10px;
+    padding: 30px 14px;
+    text-align: center;
+    background: #fafbfc;
+    cursor: pointer;
+    transition: border-color .15s, background .15s;
+  }
+  .dropzone:hover, .dropzone.dragover { border-color: #0b3d61; background: #eef4f9; }
+  .dropzone input { display: none; }
+  .dropzone .dz-icon { font-size: 26px; color: #98a2b3; }
+  .dropzone .dz-title { font-size: 13.5px; font-weight: 700; color: #344054; margin-top: 6px; }
+  .dropzone .dz-sub { font-size: 11px; color: #98a2b3; margin-top: 2px; }
+  .dropzone .dz-file { font-size: 12px; color: #0b3d61; font-weight: 700; margin-top: 8px; word-break: break-all; }
+
+  .controls {
+    display: flex; align-items: center; gap: 12px; margin-top: 16px; flex-wrap: wrap;
+  }
+  .controls label { font-size: 12.5px; font-weight: 700; color: #475467; }
+  .controls select {
+    font-size: 13px; padding: 6px 10px; border-radius: 6px; border: 1px solid #d0d5dd; background: #fff;
+  }
+  .run-btn {
+    margin-left: auto;
+    background: #0b3d61; color: #fff; border: none; border-radius: 7px;
+    padding: 9px 20px; font-size: 13.5px; font-weight: 700; cursor: pointer;
+  }
+  .run-btn:disabled { background: #98a2b3; cursor: not-allowed; }
+  .run-btn:hover:not(:disabled) { background: #092e49; }
+
+  .notice {
+    font-size: 11px; color: #b54708; background: #fffaeb; border: 1px solid #f0d9a8;
+    border-radius: 6px; padding: 8px 12px; margin-top: 14px;
+  }
+  .error-box {
+    font-size: 12.5px; color: #b42318; background: #fef3f2; border: 1px solid #f0b4ab;
+    border-radius: 6px; padding: 10px 14px; margin-top: 14px; display: none;
+  }
+  .loading-box {
+    display: none; align-items: center; gap: 10px; margin-top: 14px;
+    font-size: 12.5px; color: #475467;
+  }
+  .spinner {
+    width: 16px; height: 16px; border: 2px solid #d0d5dd; border-top-color: #0b3d61;
+    border-radius: 50%; animation: spin .8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ---------- 리포트 ---------- */
+  .report { background: #fff; border-radius: 10px; border: 1px solid #d8dbe0; overflow: hidden; display: none; }
+  .report-header {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 18px 24px; border-bottom: 3px solid #0b3d61;
+  }
+  .company { font-size: 18px; font-weight: 700; color: #0b3d61; }
+  .company small { display: block; font-size: 11px; font-weight: 400; color: #667085; margin-top: 2px; }
+  .lane-tag {
+    font-size: 12px; font-weight: 700; color: #fff; background: #0b3d61;
+    padding: 3px 12px; border-radius: 10px;
+  }
+  .summary-strip {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px;
+    padding: 16px 24px; background: linear-gradient(180deg, #0b3d61 0%, #0a3454 100%);
+  }
+  .summary-card { background: #fff; border-radius: 8px; padding: 10px 12px; text-align: center; }
+  .summary-card .num { font-size: 22px; font-weight: 800; }
+  .summary-card .lbl { font-size: 10.5px; font-weight: 700; color: #667085; margin-top: 2px; }
+  .summary-card.total .num { color: #101828; }
+  .summary-card.ok .num { color: #067647; }
+  .summary-card.missing .num { color: #b42318; }
+  .summary-card.mismatch .num { color: #b54708; }
+
+  .section { padding: 16px 24px; border-bottom: 1px solid #eaecf0; }
+  .section:last-child { border-bottom: none; }
+  .section-title {
+    font-size: 12px; font-weight: 700; color: #fff; background: #0b3d61;
+    display: inline-block; padding: 3px 12px; border-radius: 3px; margin-bottom: 10px;
+  }
+  table.grid { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  table.grid th, table.grid td { padding: 7px 10px; border: 1px solid #e4e7ec; text-align: left; }
+  table.grid th { background: #f9fafb; color: #667085; font-size: 11px; font-weight: 700; }
+  td.label { background: #f9fafb; color: #667085; font-weight: 600; width: 170px; white-space: nowrap; }
+  td.v-ok { color: #101828; }
+  td.v-missing { color: #b42318; font-style: italic; }
+  td.v-mismatch { color: #b54708; font-weight: 700; }
+  td.status { width: 100px; text-align: center; }
+  .badge { display: inline-block; font-size: 10.5px; font-weight: 700; padding: 3px 10px; border-radius: 10px; white-space: nowrap; }
+  .badge-ok { background: #ecfdf3; color: #067647; }
+  .badge-missing { background: #fef3f2; color: #b42318; }
+  .badge-mismatch { background: #fffaeb; color: #b54708; border: 1px solid #f0d9a8; }
+  .footer-note { padding: 12px 24px; font-size: 10.5px; color: #98a2b3; background: #f9fafb; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="upload-card">
+    <h1>태웅로직스 · CI/PL 필수기재 체크 (TCR/TSR)</h1>
+    <div class="sub">Eurasia Operations Team · Commercial Invoice / Packing List 업로드 시 필수항목 누락·불일치를 확인합니다</div>
+
+    <div class="dropzones single">
+      <label class="dropzone" id="dz-file">
+        <input type="file" id="file-cipl" accept=".pdf,.xlsx,.xls,.docx,.doc,.txt,.csv">
+        <div class="dz-icon">📑</div>
+        <div class="dz-title">CI / PL 파일 업로드</div>
+        <div class="dz-sub">CI·PL이 한 파일(엑셀 시트 구분 포함)에 합본되어 있어도 그대로 업로드하세요 · PDF · Excel · Word 지원</div>
+        <div class="dz-file" id="dz-file-name"></div>
+      </label>
+    </div>
+
+    <div class="controls">
+      <label for="lane-select">노선</label>
+      <select id="lane-select">
+        <option value="AUTO">자동 판별</option>
+        <option value="TCR">TCR</option>
+        <option value="TSR">TSR</option>
+      </select>
+      <button class="run-btn" id="run-btn">체크 실행</button>
+    </div>
+
+    <div class="loading-box" id="loading-box">
+      <div class="spinner"></div>
+      <span>서류를 읽고 필수기재 항목을 대조하는 중입니다...</span>
+    </div>
+    <div class="error-box" id="error-box"></div>
+    <div class="notice">
+      ⚠ 이 파일 단독으로는 분석이 동작하지 않습니다. <b>/.netlify/functions/analyze</b> 서버리스 함수(별도 제공)와 Netlify 환경변수 <b>ANTHROPIC_API_KEY</b>가 함께 배포되어 있어야 "체크 실행"이 정상 작동합니다.
+    </div>
+  </div>
+
+  <div class="report" id="report">
+    <div class="report-header">
+      <div class="company">태웅로직스 (TAEWOONG LOGISTICS)<small>CI/PL 필수기재 체크 리포트</small></div>
+      <div class="lane-tag" id="report-lane">TCR</div>
+    </div>
+    <div class="summary-strip">
+      <div class="summary-card total"><div class="num" id="sum-total">-</div><div class="lbl">전체 항목</div></div>
+      <div class="summary-card ok"><div class="num" id="sum-ok">-</div><div class="lbl">정상</div></div>
+      <div class="summary-card missing"><div class="num" id="sum-missing">-</div><div class="lbl">확인 필요</div></div>
+      <div class="summary-card mismatch"><div class="num" id="sum-mismatch">-</div><div class="lbl">불일치</div></div>
+    </div>
+    <div class="section">
+      <span class="section-title">기본 정보 (SHIPPER / CONSIGNEE / DESTINATION / STATION)</span>
+      <table class="grid" id="table-basic"></table>
+    </div>
+    <div class="section">
+      <span class="section-title">ITEM별 체크</span>
+      <table class="grid" id="table-items">
+        <tr><th>Item</th><th>HS Code</th><th>Qty</th><th>Net Wt</th><th>Gross Wt</th><th>Invoice Value</th><th>상태</th></tr>
+      </table>
+    </div>
+    <div class="section">
+      <span class="section-title">컨테이너별 체크</span>
+      <table class="grid" id="table-containers">
+        <tr><th>Container No.</th><th>Seal No.</th><th>Qty</th><th>Net Wt</th><th>Gross Wt</th><th>Invoice Value</th><th>상태</th></tr>
+      </table>
+    </div>
+    <div class="section">
+      <span class="section-title">CI ↔ PL 교차검증</span>
+      <table class="grid" id="table-cross">
+        <tr><th>대조 항목</th><th>CI 값</th><th>PL 값</th><th>상태</th></tr>
+      </table>
+    </div>
+    <div class="footer-note">
+      * 원문에 없는 항목은 "확인 필요", 서류 간 값이 다른 항목은 "불일치"로 표시됩니다. AI가 값을 임의로 추정하지 않습니다.
+    </div>
+  </div>
+
+</div>
+
+<script>
+pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+
+// ---------- 노선별 규정 (system prompt에 그대로 삽입) ----------
+const LANE_RULES = `
+당신은 태웅로직스(Taewoong Logistics) Eurasia Operations Team의 CI(Commercial Invoice)/PL(Packing List) 필수기재 체크 담당자입니다.
+아래 규정에 따라 주어진 CI/PL 원문 텍스트를 분석하고, 반드시 순수 JSON만 출력하세요 (설명, 마크다운 코드펜스, 전후 텍스트 절대 금지).
+
+[공통 필수 항목 - TCR/TSR 동일]
+1. Shipper/Consignee: 상호명, 주소, 전화번호, 담당자
+2. Shipper/Consignee 식별번호: BIN, TIN, IIN, INN 중 "1개만" 있으면 정상 (4개 다 필요한 것 아님). 개인 화주는 여권번호/ID Card 번호로 대체 가능.
+3. HS Code: 수출국 기준 + 수입국 기준 둘 다 (item별)
+4. Quantity, Net Weight, Gross Weight, Invoice Value (item별)
+5. Container No & Seal No
+6. Final Destination & Station Code
+7. 다중 컨테이너 시 컨테이너별 Quantity/Net Weight/Gross Weight/Invoice Value 분할 기재
+
+[Station Code 판정 로직]
+- 목적지 = ALMATY (노선 무관): ALMATY1 / ALMATY2 / MEDEU / ZHETYSU 중 하나가 명시되어야 함. 없으면 "missing".
+- 목적지 = TASHKENT + TCR: CHUKURSAY / TOVARNIA / SERGELY 중 하나가 명시되어야 함. 없으면 "missing".
+- 목적지 = TASHKENT + TSR: 역이 없거나 CHUKURSAY면 정상. CHUKURSAY가 아닌 다른 역이 기재되어 있으면 "mismatch" (TSR/Tashkent인데 도착역이 CHUKURSAY가 아님 — 담당자 확인 필요).
+
+[CI-PL 교차검증 항목]
+Invoice No/Date, 품목 Description/HS Code, 수량 합계, 포장/컨테이너 개수, 중량 합계. 값이 다르면 어느 한쪽을 고르지 말고 CI/PL 값을 원문 그대로 병기하고 "mismatch"로 표시.
+
+[절대 원칙]
+- 원문에 없는 값은 절대 추측해서 채우지 않는다. 없으면 status를 "missing"으로, value는 "확인 필요 — (구체적 사유)"로 표기.
+- 서로 다른 값이 있으면 고르지 않고 status를 "mismatch"로, value에 두 값을 원문 그대로 병기.
+- 숫자·고유명사(금액, 컨테이너번호, 날짜, 역명)는 원문 표기 그대로 유지한다.
+
+[출력 JSON 스키마] (다른 키 추가 금지, 아래 형식 그대로)
+{
+  "lane": "TCR 또는 TSR",
+  "destination": "최종목적지 문자열",
+  "basic_info": [ {"label": "...", "value": "...", "status": "ok|missing|mismatch"} ],
+  "items": [ {"name": "...", "hs_code": "...", "quantity": "...", "net_weight": "...", "gross_weight": "...", "invoice_value": "...", "status": "ok|missing|mismatch"} ],
+  "containers": [ {"container_no": "...", "seal_no": "...", "quantity": "...", "net_weight": "...", "gross_weight": "...", "invoice_value": "...", "status": "ok|missing|mismatch"} ],
+  "cross_check": [ {"label": "...", "ci_value": "...", "pl_value": "...", "status": "ok|missing|mismatch"} ]
+}
+basic_info에는 최소한 Shipper 정보, Shipper 식별번호, Consignee 정보, Consignee 식별번호, Final Destination, Station Code 6개 항목을 포함하세요.
+`;
+
+let ciplFile = null;
+
+function setupDropzone(zoneId, inputId, nameId) {
+  const zone = document.getElementById(zoneId);
+  const input = document.getElementById(inputId);
+  const nameEl = document.getElementById(nameId);
+  input.addEventListener("change", () => {
+    const f = input.files[0];
+    if (f) { ciplFile = f; nameEl.textContent = f.name; }
+  });
+  zone.addEventListener("dragover", (e) => { e.preventDefault(); zone.classList.add("dragover"); });
+  zone.addEventListener("dragleave", () => zone.classList.remove("dragover"));
+  zone.addEventListener("drop", (e) => {
+    e.preventDefault();
+    zone.classList.remove("dragover");
+    const f = e.dataTransfer.files[0];
+    if (f) { ciplFile = f; nameEl.textContent = f.name; }
+  });
+}
+setupDropzone("dz-file", "file-cipl", "dz-file-name");
+
+async function extractText(file) {
+  const ext = file.name.split(".").pop().toLowerCase();
+  const buf = await file.arrayBuffer();
+
+  if (ext === "pdf") {
+    const doc = await pdfjsLib.getDocument({ data: buf }).promise;
+    let text = "";
+    for (let i = 1; i <= doc.numPages; i++) {
+      const page = await doc.getPage(i);
+      const content = await page.getTextContent();
+      text += content.items.map(it => it.str).join(" ") + "\n";
+    }
+    return text;
+  }
+  if (ext === "xlsx" || ext === "xls") {
+    const wb = XLSX.read(buf, { type: "array" });
+    let text = "";
+    wb.SheetNames.forEach(name => {
+      text += `--- Sheet: ${name} ---\n`;
+      text += XLSX.utils.sheet_to_csv(wb.Sheets[name]) + "\n";
+    });
+    return text;
+  }
+  if (ext === "docx" || ext === "doc") {
+    const result = await mammoth.extractRawText({ arrayBuffer: buf });
+    return result.value;
+  }
+  // txt, csv, 기타
+  return await file.text();
+}
+
+function badgeHtml(status) {
+  const map = { ok: ["badge-ok", "정상"], missing: ["badge-missing", "확인 필요"], mismatch: ["badge-mismatch", "불일치"] };
+  const [cls, label] = map[status] || map.missing;
+  return `<span class="badge ${cls}">${label}</span>`;
+}
+function valClass(status) {
+  return status === "missing" ? "v-missing" : status === "mismatch" ? "v-mismatch" : "v-ok";
+}
+
+function renderReport(data) {
+  document.getElementById("report-lane").textContent = data.lane || "-";
+
+  const all = [...(data.basic_info||[]), ...(data.items||[]), ...(data.containers||[]), ...(data.cross_check||[])];
+  const ok = all.filter(x => x.status === "ok").length;
+  const missing = all.filter(x => x.status === "missing").length;
+  const mismatch = all.filter(x => x.status === "mismatch").length;
+  document.getElementById("sum-total").textContent = all.length;
+  document.getElementById("sum-ok").textContent = ok;
+  document.getElementById("sum-missing").textContent = missing;
+  document.getElementById("sum-mismatch").textContent = mismatch;
+
+  const basicTable = document.getElementById("table-basic");
+  basicTable.innerHTML = "";
+  (data.basic_info || []).forEach(row => {
+    basicTable.innerHTML += `<tr>
+      <td class="label">${row.label}</td>
+      <td class="${valClass(row.status)}">${row.value}</td>
+      <td class="status">${badgeHtml(row.status)}</td>
+    </tr>`;
+  });
+
+  const itemsTable = document.getElementById("table-items");
+  itemsTable.innerHTML = `<tr><th>Item</th><th>HS Code</th><th>Qty</th><th>Net Wt</th><th>Gross Wt</th><th>Invoice Value</th><th>상태</th></tr>`;
+  (data.items || []).forEach(row => {
+    itemsTable.innerHTML += `<tr>
+      <td>${row.name || ""}</td>
+      <td class="${valClass(row.status)}">${row.hs_code || ""}</td>
+      <td class="${valClass(row.status)}">${row.quantity || ""}</td>
+      <td>${row.net_weight || ""}</td>
+      <td>${row.gross_weight || ""}</td>
+      <td>${row.invoice_value || ""}</td>
+      <td class="status">${badgeHtml(row.status)}</td>
+    </tr>`;
+  });
+
+  const ctnrTable = document.getElementById("table-containers");
+  ctnrTable.innerHTML = `<tr><th>Container No.</th><th>Seal No.</th><th>Qty</th><th>Net Wt</th><th>Gross Wt</th><th>Invoice Value</th><th>상태</th></tr>`;
+  (data.containers || []).forEach(row => {
+    ctnrTable.innerHTML += `<tr>
+      <td class="${valClass(row.status)}">${row.container_no || ""}</td>
+      <td class="${valClass(row.status)}">${row.seal_no || ""}</td>
+      <td>${row.quantity || ""}</td>
+      <td>${row.net_weight || ""}</td>
+      <td>${row.gross_weight || ""}</td>
+      <td>${row.invoice_value || ""}</td>
+      <td class="status">${badgeHtml(row.status)}</td>
+    </tr>`;
+  });
+
+  const crossTable = document.getElementById("table-cross");
+  crossTable.innerHTML = `<tr><th>대조 항목</th><th>CI 값</th><th>PL 값</th><th>상태</th></tr>`;
+  (data.cross_check || []).forEach(row => {
+    crossTable.innerHTML += `<tr>
+      <td>${row.label || ""}</td>
+      <td class="${valClass(row.status)}">${row.ci_value || ""}</td>
+      <td class="${valClass(row.status)}">${row.pl_value || ""}</td>
+      <td class="status">${badgeHtml(row.status)}</td>
+    </tr>`;
+  });
+
+  document.getElementById("report").style.display = "block";
+}
+
+document.getElementById("run-btn").addEventListener("click", async () => {
+  const errorBox = document.getElementById("error-box");
+  const loadingBox = document.getElementById("loading-box");
+  errorBox.style.display = "none";
+  document.getElementById("report").style.display = "none";
+
+  if (!ciplFile) {
+    errorBox.textContent = "CI/PL 파일을 업로드해주세요.";
+    errorBox.style.display = "block";
+    return;
+  }
+
+  const laneSelect = document.getElementById("lane-select").value;
+  document.getElementById("run-btn").disabled = true;
+  loadingBox.style.display = "flex";
+
+  try {
+    const fullText = await extractText(ciplFile);
+
+    const laneInstruction = laneSelect === "AUTO"
+      ? "노선(TCR/TSR)이 지정되지 않았으니 목적지·문맥으로 판단해 lane 필드에 명시하세요."
+      : `노선은 ${laneSelect}로 확정되었습니다.`;
+
+    const userPrompt = `${laneInstruction}
+
+아래는 CI(Commercial Invoice)와 PL(Packing List)이 한 파일에 합본되어 있는 원문입니다. 엑셀이라면 시트별로("--- Sheet: 이름 ---" 구분자로 표시됨), PDF/Word라면 "COMMERCIAL INVOICE" / "PACKING LIST" 같은 헤더 키워드로 CI 부분과 PL 부분을 스스로 구분한 뒤 대조하세요. 구분이 애매하면 하나의 서류를 CI와 PL 겸용으로 보고 동일 항목으로 취급하세요.
+
+[원문 전체]
+${fullText.slice(0, 20000)}
+
+위 규정에 따라 분석 결과를 JSON으로만 출력하세요.`;
+
+    const response = await fetch("/.netlify/functions/analyze", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        system: LANE_RULES,
+        messages: [{ role: "user", content: userPrompt }]
+      })
+    });
+
+    if (!response.ok) throw new Error(`API 응답 오류 (status ${response.status})`);
+    const data = await response.json();
+    const textBlock = (data.content || []).find(b => b.type === "text");
+    if (!textBlock) throw new Error("분석 결과를 받지 못했습니다.");
+
+    const cleaned = textBlock.text.replace(/```json|```/g, "").trim();
+    const parsed = JSON.parse(cleaned);
+    renderReport(parsed);
+
+  } catch (err) {
+    errorBox.textContent = "체크 중 오류가 발생했습니다: " + err.message + " (외부 호스팅 환경이라면 백엔드 프록시 설정이 필요할 수 있습니다.)";
+    errorBox.style.display = "block";
+  } finally {
+    loadingBox.style.display = "none";
+    document.getElementById("run-btn").disabled = false;
+  }
+});
+</script>
+</body>
+</html>
